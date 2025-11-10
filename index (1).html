@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Angostura Price List — Nov 9, 2025</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
+  <style>
+    :root { --bg:#0f1115; --card:#151822; --muted:#9aa4b2; --text:#e6eaf2; --accent:#58a6ff; }
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}
+    header{position:sticky;top:0;z-index:20;background:linear-gradient(180deg,rgba(15,17,21,.95),rgba(15,17,21,.75) 70%,rgba(15,17,21,0));backdrop-filter:blur(8px);}
+    .wrap{max-width:1200px;margin:0 auto;padding:16px}
+    h1{margin:0 0 8px;font-weight:600;font-size:20px}
+    .bar{display:grid;gap:8px;grid-template-columns:1fr; padding:8px 0}
+    @media(min-width:900px){ .bar{grid-template-columns: 1fr 1fr 1fr 1fr auto} }
+    select,input,button{width:100%;padding:10px 12px;background:var(--card);border:1px solid #293142;color:var(--text);border-radius:10px;outline:none}
+    select:focus,input:focus{border-color:var(--accent)}
+    button{cursor:pointer;background:#1f6feb;border-color:#1f6feb}
+    button.secondary{background:var(--card);border-color:#293142}
+    .card{background:var(--card);border:1px solid #222a39;border-radius:14px;padding:12px;margin-top:12px}
+    .hint{color:var(--muted);font-size:12px;margin-top:6px}
+    table.dataTable thead th{position:sticky;top:0;background:var(--card);}
+    table.dataTable{width:100%!important;border-collapse:separate;border-spacing:0;border-radius:12px;overflow:hidden}
+    #error{display:none;background:#2a1b1b;border:1px solid #5c2b2b;color:#ffb4b4;padding:10px;border-radius:10px;margin:12px 0}
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <h1>Angostura Price List — Nov 9, 2025</h1>
+      <div id="error"></div>
+      <div class="bar">
+        <input id="globalSearch" type="search" placeholder="Search all columns (brand, code, UPC…)" />
+        <select id="categoryFilter"><option value="">All Categories</option></select>
+        <select id="subcategoryFilter"><option value="">All Subcategories</option></select>
+        <div style="display:flex;gap:8px">
+          <input id="minPrice" type="number" step="0.01" placeholder="Min MSRP" />
+          <input id="maxPrice" type="number" step="0.01" placeholder="Max MSRP" />
+        </div>
+        <div style="display:flex; gap:8px;">
+          <button id="resetFilters" class="secondary">Reset</button>
+          <button id="downloadView">Export View (CSV)</button>
+        </div>
+      </div>
+      <div class="hint">This build feeds DataTables via JS arrays (no DOM mismatch). If it ever looks cached, do a hard refresh (⌘⇧R).</div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <div class="card">
+      <table id="priceTable" class="display" style="width:100%"></table>
+    </div>
+  </main>
+
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+  <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <script>
+    const CSV_PATH = 'angostura-price-list-2025-11-09.csv';
+    let dt, headers=[], rows=[];
+
+    const showError = (m) => { const e=document.getElementById('error'); e.textContent=m; e.style.display='block'; };
+    const norm = s => (s??'').toString().trim();
+    const lower = s => norm(s).toLowerCase();
+    const uniq = a => Array.from(new Set(a.filter(Boolean))).sort((x,y)=>x.localeCompare(y));
+
+    function normalizeMatrix(data){
+      const filtered = data.filter(r => r && r.some(x => norm(x) !== ''));
+      let max = 0; filtered.forEach(r => { if (r.length>max) max=r.length; });
+      return filtered.map(r => {
+        const row = r.slice(0,max);
+        while (row.length<max) row.push('');
+        return row;
+      });
+    }
+
+    function idx(name){
+      const i = headers.findIndex(h => lower(h)===lower(name));
+      if (i>=0) return i;
+      return headers.findIndex(h => lower(h).includes(lower(name)));
+    }
+
+    function exportViewCSV(){
+      const data = dt.rows({search:'applied'}).data().toArray();
+      const lines = [headers.join(',')];
+      data.forEach(r => {
+        const safe = r.map(v => {
+          const s=(v??'').toString().replace(/"/g,'""');
+          return /[",\n]/.test(s) ? `"${s}"` : s;
+        });
+        lines.push(safe.join(','));
+      });
+      const blob = new Blob([lines.join('\n')], {type:'text/csv;charset=utf-8'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = 'angostura-price-list-view.csv'; a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function initFilters(){
+      const cat = idx('Category');
+      const sub = idx('Subcategory');
+      const msrp = idx('MSRP');
+
+      if (cat>=0){
+        const cats = uniq(rows.map(r => r[cat]));
+        const sel = document.getElementById('categoryFilter');
+        cats.forEach(c => { const o=document.createElement('option'); o.value=c; o.textContent=c; sel.appendChild(o); });
+        sel.addEventListener('change', ()=>{
+          const v = sel.value ? '^'+$.fn.dataTable.util.escapeRegex(sel.value)+'$' : '';
+          dt.column(cat).search(v, true, false).draw();
+        });
+      }
+      if (sub>=0){
+        const subs = uniq(rows.map(r => r[sub]));
+        const sel = document.getElementById('subcategoryFilter');
+        subs.forEach(s => { const o=document.createElement('option'); o.value=s; o.textContent=s; sel.appendChild(o); });
+        sel.addEventListener('change', ()=>{
+          const v = sel.value ? '^'+$.fn.dataTable.util.escapeRegex(sel.value)+'$' : '';
+          dt.column(sub).search(v, true, false).draw();
+        });
+      }
+      const minI=document.getElementById('minPrice'), maxI=document.getElementById('maxPrice');
+      if (msrp>=0){
+        $.fn.dataTable.ext.search.push(function(settings, data){
+          const min=parseFloat(minI.value), max=parseFloat(maxI.value);
+          const val=parseFloat((data[msrp]||'').toString().replace(/[^0-9.]/g,''));
+          if (isNaN(val)) return true;
+          if (!isNaN(min) && val<min) return false;
+          if (!isNaN(max) && val>max) return false;
+          return true;
+        });
+        minI.addEventListener('input', ()=>dt.draw());
+        maxI.addEventListener('input', ()=>dt.draw());
+      }
+
+      document.getElementById('globalSearch').addEventListener('input', e=>dt.search(e.target.value).draw());
+      document.getElementById('resetFilters').addEventListener('click', ()=>{
+        document.getElementById('globalSearch').value='';
+        document.getElementById('categoryFilter').value='';
+        document.getElementById('subcategoryFilter').value='';
+        minI.value=''; maxI.value='';
+        dt.search(''); dt.columns().search(''); dt.draw();
+      });
+      document.getElementById('downloadView').addEventListener('click', exportViewCSV);
+    }
+
+    Papa.parse(CSV_PATH, {
+      download: true, dynamicTyping:false, skipEmptyLines:'greedy',
+      complete: (res)=>{
+        try{
+          const matrix = normalizeMatrix(res.data);
+          headers = matrix[0].map(h => norm(h));
+          rows = matrix.slice(1);
+          dt = $('#priceTable').DataTable({
+            data: rows,
+            columns: headers.map(h => ({ title: h })),
+            pageLength: 25, stateSave: true, autoWidth: false, deferRender: true
+          });
+          initFilters();
+        }catch(e){ console.error(e); showError('Build failed.'); }
+      },
+      error: (err)=>{ console.error(err); showError('Failed to fetch CSV.'); }
+    });
+  </script>
+</body>
+</html>
